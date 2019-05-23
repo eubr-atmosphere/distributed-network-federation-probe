@@ -1,16 +1,13 @@
 #define KBUILD_MODNAME "xdp_collector"
 #include <linux/ip.h>
 #include <linux/udp.h>
+#include <linux/tcp.h>
 #include <linux/if_vlan.h>
 #include <header.h>
 
 
 BPF_HASH(link_metrics_map, struct link_key_t, struct link_metrics_t, HASHMAP_LINK_SIZE);
-// BPF_HASH(link_fed_metrics_map, struct link_fed_key_t, struct link_fed_metrics_t, HASHMAP_FED_LINK_SIZE);
-
-//BPF_TABLE("percpu_hash", struct link_key_t, struct link_metrics_t, link_metrics_map, HASHMAP_LINK_SIZE);
 BPF_TABLE("percpu_hash", struct link_fed_key_t, struct link_fed_metrics_t, link_fed_metrics_map, HASHMAP_FED_LINK_SIZE);
-
 BPF_HASH(link_fed_threshold_map, struct link_fed_key_t, uint32_t, HASHMAP_FED_LINK_SIZE);
 
 static inline
@@ -19,10 +16,9 @@ uint32_t compute_ewma(uint32_t measure, uint32_t avg_measures) {
 }
 
 int collector(struct xdp_md *ctx) {
-    // https://gcc.gnu.org/onlinedocs/gcc/Pointer-Arith.html
     void* data_end = (void*)(long)ctx->data_end;
     void* cursor = (void*)(long)ctx->data;
-    // Parse outer: Ether->IP->UDP->TelemetryReport.
+    // Parse outer: Ether->IP->UDP->INT_Telemetry_Report.
     struct ethhdr *eth;
     CURSOR_ADVANCE(eth, cursor, sizeof(struct ethhdr), data_end);
     if (ntohs(eth->h_proto) != ETH_P_IP)
@@ -41,7 +37,7 @@ int collector(struct xdp_md *ctx) {
     struct INT_telemetry_report_t *tm_rp;
     CURSOR_ADVANCE(tm_rp, cursor, sizeof(struct INT_telemetry_report_t), data_end);
 
-    // Parse Inner: Ether->IP->UDP/TCP->INT.
+    // Parse Inner: Ether->(VLAN)->IP->UDP/TCP->INT_stack.
     CURSOR_ADVANCE(eth, cursor, sizeof(struct ethhdr), data_end);
     uint16_t eth_proto = ntohs(eth->h_proto);
     uint16_t vlan_id;
@@ -51,6 +47,7 @@ int collector(struct xdp_md *ctx) {
         if (ntohs(vlan->h_vlan_encapsulated_proto) != ETH_P_IP) return XDP_DROP;
         vlan_id = ntohs(vlan->h_vlan_TCI) & 0x0FFF;
     } else if ( eth_proto == ETH_P_IP){
+    // If the packet is untagged the default VLAN id is 0.
         vlan_id = 0;
     } else
         return XDP_DROP;
@@ -58,15 +55,14 @@ int collector(struct xdp_md *ctx) {
     CURSOR_ADVANCE(ip, cursor, sizeof(struct iphdr), data_end);
     uint8_t remain_size;
     if (ip->protocol == IPPROTO_TCP){
-        uint8_t * data_offset_ptr = (uint8_t *) cursor + TCPHDR_FIX_SIZE;
-        if(data_offset_ptr > data_end ) return XDP_DROP;
-        uint8_t data_offset = *(data_offset_ptr) >> 4;
-        if (data_offset >= 20)
-            remain_size = data_offset - TCPHDR_FIX_SIZE;
+        struct tcphdr *tcp;
+        CURSOR_ADVANCE(tcp, cursor, sizeof(struct tcphdr), data_end);
+        if (tcp->doff >= 5)
+            remain_size = tcp->doff*4 - sizeof(struct tcphdr);
         else
             return XDP_DROP;
     } else if (ip->protocol == IPPROTO_UDP) {
-        remain_size = UDPHDR_SIZE;
+        remain_size = sizeof(struct udphdr);
     } else
         return XDP_DROP;
     CURSOR_ADVANCE_NO_PARSE(cursor, remain_size, data_end);
@@ -80,11 +76,11 @@ int collector(struct xdp_md *ctx) {
     struct INT_metadata_fixed_t *int_md_fix;
     CURSOR_ADVANCE(int_md_fix, cursor, sizeof(struct INT_metadata_fixed_t), data_end);
     uint16_t int_ins = ntohs(int_md_fix->ins);
-    // check if ONLY sw_id, ingress ts and egress ts are present (bitmask 10001100)
+    // Check if sw_id, ingress ts and egress ts are the only fields present (bitmask 10001100)
     if ((int_ins >> 8) & 0x8C != 0x8C) return XDP_DROP;
     uint8_t num_INT_hop = (uint8_t)(int_shim->length - 3) / (int_md_fix->hopMlen);
 
-    //WARNING: not parsing the int report! does the sink append its metadata in the report?
+    //WARNING: the data in the INT_Telemetry_Report is ignored! does the sink node append its metadata in the report?
     struct INT_metadata_stack_t *previous_int_data;
     if (num_INT_hop > 0)
         CURSOR_ADVANCE(previous_int_data, cursor, sizeof(struct INT_metadata_stack_t), data_end);
@@ -112,11 +108,7 @@ int collector(struct xdp_md *ctx) {
         if (link_metrics_ptr == NULL) {
             struct link_metrics_t link_metrics = {.latency = latency};
             link_metrics_map.update(&link_key, &link_metrics);
-        }
-        //else if (link_metrics_ptr->latency == 0)
-        // aggiunto per cpuperhash!!!
-        //    link_metrics_ptr->latency = latency;
-        else
+        } else
             link_metrics_ptr->latency = compute_ewma(latency, link_metrics_ptr->latency);
 
         link_fed_key.link_key = link_key;
@@ -128,11 +120,9 @@ int collector(struct xdp_md *ctx) {
             };
             link_fed_metrics_map.update(&link_fed_key, &link_fed_metrics);
         } else {
-            //lock_xadd(&link_fed_metrics_ptr->tot_pkts, 1);
             link_fed_metrics_ptr->tot_pkts++;
             latency_threshold = link_fed_threshold_map.lookup(&link_fed_key);
             if (latency_threshold != NULL && (latency > *latency_threshold))
-                //lock_xadd(&link_fed_metrics_ptr->above_threshold_pkts, 1);
                 link_fed_metrics_ptr->above_threshold_pkts++;
         }
     }

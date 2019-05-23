@@ -1,7 +1,3 @@
-#define INT_SHIM_SIZE 4
-#define UDPHDR_SIZE 8
-#define TCPHDR_FIX_SIZE 12
-
 #define HASHMAP_LINK_SIZE _HASHMAP_LINK_SIZE
 #define HASHMAP_FED_LINK_SIZE _HASHMAP_FED_LINK_SIZE
 #define INT_DST_PORT _INT_DST_PORT
@@ -87,11 +83,9 @@ struct link_fed_key_t {
 struct link_metrics_t {
   uint32_t latency;
   uint32_t alignment_padding;
-//  struct bpf_spin_lock lock;
 };
 
 struct link_fed_metrics_t {
   uint32_t above_threshold_pkts;
   uint32_t tot_pkts;
-//  struct bpf_spin_lock lock;
 };
