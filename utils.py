@@ -47,3 +47,7 @@ def bps_to_human_string(value, to_byte_per_second=False):
             return '%3.1f %s%s' % (value, unit, suffix)
         value /= 1000.0
     return '%.1f %s%s' % (value, 'T', suffix)
+
+
+def extract_switch_id(id):
+    return int(id[3:], 16)

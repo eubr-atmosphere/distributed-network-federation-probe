@@ -1,0 +1,332 @@
+diff --git a/apps/imr/api/src/main/java/org/onosproject/imr/cli/StartMonitorCommand.java b/apps/imr/api/src/main/java/org/onosproject/imr/cli/StartMonitorCommand.java
+index dfba41c925..eca35cfb52 100644
+--- a/apps/imr/api/src/main/java/org/onosproject/imr/cli/StartMonitorCommand.java
++++ b/apps/imr/api/src/main/java/org/onosproject/imr/cli/StartMonitorCommand.java
+@@ -46,12 +46,12 @@ public class StartMonitorCommand extends AbstractShellCommand {
+             description = "Application Name that submitted the intent",
+             required = true)
+     private String appName;
+-
++/*
+     @Argument(index = 2, name = "intentKey",
+             description = "String representation of the key of the intent",
+             required = false)
+     private String key;
+-
++*/
+     private IntentMonitorAndRerouteService imrService;
+     private IntentService intentService;
+ 
+@@ -61,12 +61,12 @@ public class StartMonitorCommand extends AbstractShellCommand {
+         intentService = get(IntentService.class);
+ 
+         if (appId != null && appName != null) {
+-            if (key != null) {
+-                /*
++            /* if (key != null) {
++
+                 Intent key might be a StringKey or a LongKey, but in any case is
+                 provided via CLI as a string. To solve only ambiguity we check if
+                 "--longkey" CLI parameter has been set.
+-                 */
++
+                 if (treatAsLongKey) {
+                     try {
+                         Key intentKeyLong = Key.of(Integer.decode(key), new DefaultApplicationId(appId, appName));
+@@ -95,13 +95,15 @@ public class StartMonitorCommand extends AbstractShellCommand {
+                     print("Started monitoring of intent with StringKey %s, even if not yet submitted", intentKeyString);
+                 }
+             } else {
++
+                 intentService.getIntents().forEach(i -> {
+                     if (i.appId().equals(new DefaultApplicationId(appId, appName))) {
+                         imrService.startMonitorIntent(i.key());
+                         print("Started monitoring of intent with Key %s", i.key());
+                     }
+                 });
++                */
++            imrService.startMonitorApp(appId, appName);
+             }
+         }
+     }
+-}
+diff --git a/apps/imr/api/src/main/java/org/onosproject/imr/cli/StopMonitorCommand.java b/apps/imr/api/src/main/java/org/onosproject/imr/cli/StopMonitorCommand.java
+index 933b4be19d..7f7206aa81 100644
+--- a/apps/imr/api/src/main/java/org/onosproject/imr/cli/StopMonitorCommand.java
++++ b/apps/imr/api/src/main/java/org/onosproject/imr/cli/StopMonitorCommand.java
+@@ -45,12 +45,12 @@ public class StopMonitorCommand extends AbstractShellCommand {
+             description = "Application Name that submitted the intent",
+             required = true)
+     private String appName = null;
+-
++/*
+     @Argument(index = 2, name = "intentKey",
+             description = "String representation of the key of the intent",
+             required = false)
+     private String key = null;
+-
++*/
+     private IntentMonitorAndRerouteService imrService;
+     private IntentService intentService;
+ 
+@@ -60,12 +60,13 @@ public class StopMonitorCommand extends AbstractShellCommand {
+         intentService = get(IntentService.class);
+ 
+         if (appId != null && appName != null) {
++            /*
+             if (key != null) {
+-                /*
++
+                 Intent key might be a StringKey or a LongKey, but in any case is
+                 provided via CLI as a string. To solve only ambiguity we check if
+                 "--longkey" CLI parameter has been set.
+-                 */
++
+                 if (treatAsLongKey) {
+                     try {
+                         Key intentKeyLong = Key.of(Integer.decode(key), new DefaultApplicationId(appId, appName));
+@@ -94,8 +95,9 @@ public class StopMonitorCommand extends AbstractShellCommand {
+                         print("Stopped monitoring of intent with key %s", i.key());
+                     }
+                 });
++                */
++            imrService.stopMonitorApp(appId, appName);
+             }
+         }
+ 
+     }
+-}
+diff --git a/apps/imr/api/src/main/resources/OSGI-INF/blueprint/shell-config.xml b/apps/imr/api/src/main/resources/OSGI-INF/blueprint/shell-config.xml
+index fdddc88ea7..70121a6e7a 100644
+--- a/apps/imr/api/src/main/resources/OSGI-INF/blueprint/shell-config.xml
++++ b/apps/imr/api/src/main/resources/OSGI-INF/blueprint/shell-config.xml
+@@ -7,7 +7,9 @@
+             <completers>
+                 <ref component-id="applicationIdCompleter"/>
+                 <ref component-id="applicationNameCompleter"/>
++                <!--
+                 <ref component-id="intentKeyImrCompleter"/>
++                -->
+             </completers>
+         </command>
+ 
+@@ -16,7 +18,9 @@
+             <completers>
+                 <ref component-id="applicationIdCompleter"/>
+                 <ref component-id="applicationNameCompleter"/>
++                <!--
+                 <ref component-id="intentKeyImrCompleter"/>
++                -->
+             </completers>
+         </command>
+ 
+@@ -24,6 +28,8 @@
+ 
+     <bean id="applicationIdCompleter" class="org.onosproject.imr.cli.ApplicationIdImrCompleter"/>
+     <bean id="applicationNameCompleter" class="org.onosproject.imr.cli.ApplicationNameImrCompleter"/>
++    <!--
+     <bean id="intentKeyImrCompleter" class="org.onosproject.imr.cli.IntentKeyImrCompleter"/>
++    -->
+ 
+ </blueprint>
+diff --git a/apps/imr/app/src/main/java/org/onosproject/imr/IntentMonitorAndRerouteManager.java b/apps/imr/app/src/main/java/org/onosproject/imr/IntentMonitorAndRerouteManager.java
+index 9b5d0706e8..b856dc9721 100644
+--- a/apps/imr/app/src/main/java/org/onosproject/imr/IntentMonitorAndRerouteManager.java
++++ b/apps/imr/app/src/main/java/org/onosproject/imr/IntentMonitorAndRerouteManager.java
+@@ -26,6 +26,7 @@ import org.apache.felix.scr.annotations.ReferenceCardinality;
+ import org.apache.felix.scr.annotations.Service;
+ import org.onlab.util.KryoNamespace;
+ import org.onosproject.core.ApplicationId;
++import org.onosproject.core.DefaultApplicationId;
+ import org.onosproject.imr.data.Path;
+ import org.onosproject.imr.data.Route;
+ import org.onosproject.net.ConnectPoint;
+@@ -91,7 +92,8 @@ public class IntentMonitorAndRerouteManager implements IntentMonitorAndRerouteSe
+     private ConsistentMap<ApplicationId, Map<Key, ConnectivityIntent>> monitoredIntentsDistr;
+     private Map<ApplicationId, Map<Key, ConnectivityIntent>> monitoredIntents;
+ 
+-    private DistributedSet<Key> toBeMonitoredIntents;
++    //private DistributedSet<Key> toBeMonitoredIntents;
++    private DistributedSet<Short> toBeMonitoredApps;
+ 
+     @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
+     protected IntentService intentService;
+@@ -126,7 +128,7 @@ public class IntentMonitorAndRerouteManager implements IntentMonitorAndRerouteSe
+                 .withName("IMR-monitoredIntents")
+                 .build();
+         monitoredIntents = monitoredIntentsDistr.asJavaMap();
+-
++/*
+         toBeMonitoredIntents = storageService.<Key>setBuilder()
+                 .withSerializer(Serializer.using(
+                         new KryoNamespace.Builder()
+@@ -137,6 +139,17 @@ public class IntentMonitorAndRerouteManager implements IntentMonitorAndRerouteSe
+                 .build()
+                 .asDistributedSet();
+         log.info("IntentMonitorAndReroute activated");
++*/
++        toBeMonitoredApps = storageService.<Short>setBuilder()
++                .withSerializer(Serializer.using(
++                        new KryoNamespace.Builder()
++                                .register(KryoNamespaces.API)
++                                .register(Short.class)
++                                .build()))
++                .withName("IMR-toMonitorApps")
++                .build()
++                .asDistributedSet();
++        log.info("IntentMonitorAndReroute activated");
+     }
+ 
+     @Deactivate
+@@ -157,7 +170,7 @@ public class IntentMonitorAndRerouteManager implements IntentMonitorAndRerouteSe
+         temp.put(intent.key(), intent);
+         monitoredIntents.put(intent.appId(), temp);
+     }
+-
++/*
+     @Override
+     public synchronized boolean startMonitorIntent(Key intentKey) {
+         checkNotNull(intentKey, "Intent Key must not be null");
+@@ -175,7 +188,7 @@ public class IntentMonitorAndRerouteManager implements IntentMonitorAndRerouteSe
+         }
+         return true;
+     }
+-
++*/
+ 
+     /**
+      * Returns whether the intent can be monitored or not.
+@@ -186,7 +199,7 @@ public class IntentMonitorAndRerouteManager implements IntentMonitorAndRerouteSe
+     public boolean allowedIntent(Intent intent) {
+         return intent instanceof LinkCollectionIntent || intent instanceof PointToPointIntent;
+     }
+-
++/*
+     @Override
+     public synchronized boolean stopMonitorIntent(Key intentKey) {
+         checkNotNull(intentKey, "Intent key must not be null");
+@@ -198,6 +211,39 @@ public class IntentMonitorAndRerouteManager implements IntentMonitorAndRerouteSe
+         toBeMonitoredIntents.remove(intentKey);
+         return true;
+     }
++*/
++    public synchronized boolean startMonitorApp(Short appId, String appName) {
++        checkNotNull(appId, "Application Id must not be null");
++        log.debug("Start Monitor Application intents");
++        toBeMonitoredApps.add(appId);
++
++        intentService.getIntents().forEach(i -> {
++            if (i.appId().equals(new DefaultApplicationId(appId, appName)) &&
++                    allowedIntent(intentService.getIntent(i.key())) &&
++                    intentService.getIntentState(i.key()) == IntentState.INSTALLED) {
++                //print("Started monitoring of intent with Key %s", i.key());
++                storeMonitoredIntent((ConnectivityIntent) intentService.getIntent(i.key()));
++            }
++        });
++        return true;
++    }
++
++    public synchronized boolean stopMonitorApp(Short appId, String appName) {
++        checkNotNull(appId, "Application Id must not be null");
++        log.debug("Stop Monitor Application intents");
++        if (!toBeMonitoredApps.contains(appId)) {
++            return false;
++        }
++
++        intentService.getIntents().forEach(i -> {
++           if (i.appId().equals(new DefaultApplicationId(appId, appName)) &&
++                   allowedIntent(intentService.getIntent(i.key()))) {
++               //print("Stop monitoring of intent with Key %s", i.key());
++               removeIntent(i.key());
++           }
++        });
++        return true;
++    }
+ 
+     /**
+      * Removes the intent from the internal structure.
+@@ -244,7 +290,8 @@ public class IntentMonitorAndRerouteManager implements IntentMonitorAndRerouteSe
+      * @param appId Application id that submits initially the intent.
+      * @return The new intent, if not possibile it will return the old intent already installed.
+      */
+-    private ConnectivityIntent generateLinkCollectionIntent(
++//    private ConnectivityIntent generateLinkCollectionIntent(
++      private ConnectivityIntent generatePointToPointIntent(
+             List<Link> links,
+             Key intentKey,
+             ApplicationId appId) {
+@@ -265,18 +312,22 @@ public class IntentMonitorAndRerouteManager implements IntentMonitorAndRerouteSe
+         }
+ 
+         // Now generate the new intent
+-        LinkCollectionIntent newIntent = LinkCollectionIntent.builder()
++//        LinkCollectionIntent newIntent = LinkCollectionIntent.builder()
++          PointToPointIntent newIntent = PointToPointIntent.builder()
+                 .appId(oldIntent.appId())
+                 .key(intentKey)
+                 .selector(oldIntent.selector())
+-                .filteredIngressPoints(ImmutableSet.copyOf(cpPair.getLeft()))
+-                .filteredEgressPoints(ImmutableSet.copyOf(cpPair.getRight()))
++//                .filteredIngressPoints(ImmutableSet.copyOf(cpPair.getLeft()))
++//                .filteredEgressPoints(ImmutableSet.copyOf(cpPair.getRight()))
++                  .filteredIngressPoint(cpPair.getLeft().iterator().next())
++                  .filteredEgressPoint(cpPair.getRight().iterator().next())
+                 .treatment(oldIntent.treatment())
+                 .priority(oldIntent.priority())
+                 .constraints(oldIntent.constraints())
+-                .links(ImmutableSet.copyOf(links))
++//                .links(ImmutableSet.copyOf(links))
++                  .suggestedPath(links)
+                 //TODO: is there a way to get from the old intent?
+-                .applyTreatmentOnEgress(true)
++//                .applyTreatmentOnEgress(true)
+                 .build();
+ 
+         return newIntent;
+@@ -319,7 +370,8 @@ public class IntentMonitorAndRerouteManager implements IntentMonitorAndRerouteSe
+         List<Link> links = createPathFromDeviceList(currentPath.path());
+ 
+         // Generate the new Link collection intent, if not possible it will return the old intent
+-        ConnectivityIntent intent = generateLinkCollectionIntent(links, key, appId);
++//        ConnectivityIntent intent = generateLinkCollectionIntent(links, key, appId);
++        ConnectivityIntent intent = generatePointToPointIntent(links, key, appId);
+         storeMonitoredIntent(intent);
+         intentService.submit(intent);
+         return true;
+@@ -592,9 +644,11 @@ public class IntentMonitorAndRerouteManager implements IntentMonitorAndRerouteSe
+              * An intent event is relevant if it is of one of the allowed types
+              * and if it is one of the monitored ones.
+              */
+-            Key intentKey = event.subject().key();
++            // Key intentKey = event.subject().key();
++            Short appId = event.subject().appId().id();
+             return allowedIntent(event.subject())
+-                    && toBeMonitoredIntents.contains(intentKey);
++            //        && toBeMonitoredIntents.contains(intentKey);
++            && toBeMonitoredApps.contains(appId);
+         }
+     }
+ 
+diff --git a/apps/imr/app/src/main/java/org/onosproject/imr/IntentMonitorAndRerouteService.java b/apps/imr/app/src/main/java/org/onosproject/imr/IntentMonitorAndRerouteService.java
+index b674149f0b..0b7688da94 100644
+--- a/apps/imr/app/src/main/java/org/onosproject/imr/IntentMonitorAndRerouteService.java
++++ b/apps/imr/app/src/main/java/org/onosproject/imr/IntentMonitorAndRerouteService.java
+@@ -39,14 +39,16 @@ public interface IntentMonitorAndRerouteService {
+      * @param intentKey Key of the intent to monitor
+      * @return true, false only if the intent is of one of the not currently supported type
+      */
+-    boolean startMonitorIntent(Key intentKey);
++   // boolean startMonitorIntent(Key intentKey);
++    boolean startMonitorApp(Short appId, String appName);
+ 
+     /**
+      * Stops to monitor an intent.
+      * @param intentKey Key of the intent you want to stop the monitoring.
+      * @return false if the intent key passed is not one of the tracked intent, true otherwise.
+      */
+-    boolean stopMonitorIntent(Key intentKey);
++  //  boolean stopMonitorIntent(Key intentKey);
++    boolean stopMonitorApp(Short appId, String appName);
+ 
+     /**
+      * Applies a new route to a monitored intent.

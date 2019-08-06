@@ -16,6 +16,7 @@ class CustomTopo(Topo):
 
         s = [self.addSwitch('s%d' % n) for n in range(1, 4)]
         h = [self.addHost('h%d' % n, cls=VLANHost, vlan=VLAN_ID, ip=base_address+str(n)) for n in range(1, 3)]
+        h.extend([self.addHost('h%d' % n, cls=VLANHost, vlan=20, ip=base_address+str(n)) for n in range(3, 5)])
 
         self.addLink(s[0], s[1], bw=bw)
         self.addLink(s[0], s[2], bw=bw)
@@ -23,6 +24,8 @@ class CustomTopo(Topo):
 
         self.addLink(h[0], s[0], bw=bw)
         self.addLink(h[1], s[1], bw=bw)
+        self.addLink(h[2], s[0], bw=bw)
+        self.addLink(h[3], s[1], bw=bw)
 
 class VLANHost( Host ):
     "Host connected to VLAN interface"
