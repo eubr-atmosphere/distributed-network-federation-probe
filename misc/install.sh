@@ -55,7 +55,7 @@ function download-onos-opa {
 
     # Patching IMR to (auto)submit PointToPointIntent with suggested paths
     cd $ONOS_ROOT
-    git apply ../onos-opa/misc/imr.patch
+    git apply ../distributed-network-federation-probe/misc/imr.patch
 }
 
 install-prereq

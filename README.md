@@ -40,7 +40,7 @@ onos-app localhost activate org.onosproject.imr
 ```
 Then install and activate IFWD application
 ```
-onos-app localhost install! ./ifwd/target/onos-app-ifwd-1.9.0-SNAPSHOT.oar
+onos-app localhost install! target/onos-app-ifwd-1.9.0-SNAPSHOT.oar
 ```
 Create a simple Mininet topology
 ```
